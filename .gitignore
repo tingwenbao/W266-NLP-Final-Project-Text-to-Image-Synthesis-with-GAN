@@ -4,3 +4,7 @@ MNIST_data
 out
 dataset_exploration_out
 mnist/
+*/102flowers
+*.pickle
+*.txt
+*.py~
