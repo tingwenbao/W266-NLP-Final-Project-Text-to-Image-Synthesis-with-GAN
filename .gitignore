@@ -8,3 +8,6 @@ mnist/
 *.pickle
 *.txt
 *.py~
+Data/
+*.tar.gz
+skip-thoughts/

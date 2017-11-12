@@ -1,130 +1,118 @@
-from __future__ import print_function
-import os,sys,gzip,requests,zipfile,tarfile
-from tqdm import tqdm
-from six.moves import urllib
-import time
+### data download code adapted from https://github.com/paarthneekhara/text-to-image/blob/master/download_datasets.py
 
-'''
-This script is mainly used in cooperation with codes from https://github.com/zsdonghao/text-to-image
-download flower dataset from : http://www.robots.ox.ac.uk/~vgg/data/flowers/102/
-download caption dataset from : https://drive.google.com/uc?export=download&confirm=l7Ld&id=0B0ywwgffWnLLcms2WWJQRFNSWXM
-'''
+# downloads/extracts datasets described in the README.md
 
+import os
+import sys
+import errno
+import tarfile
 
-def get_confirm_token(response):
-	for key, value in response.cookies.items():
-		if key.startswith('download_warning'):
-			return value
-	return None
+if sys.version_info >= (3,):
+    from urllib.request import urlretrieve
+else:
+    from urllib import urlretrieve
 
-def save_response_content(response, destination, chunk_size=32*1024):
-	total_size = int(response.headers.get('content-length', 0))
-	with open(destination, "wb") as f:
-		for chunk in tqdm(response.iter_content(chunk_size), total=total_size,
-				unit='B', unit_scale=True, desc=destination):
-			if chunk: # filter out keep-alive new chunks
-				f.write(chunk)
-
-def download_file_from_google_drive(id, destination):    
-	URL = "https://docs.google.com/uc?export=download"
-	session = requests.Session()
-
-	response = session.get(URL, params={ 'id': id }, stream=True)
-	token = get_confirm_token(response)
-
-	if token:
-		params = { 'id' : id, 'confirm' : token }
-		response = session.get(URL, params=params, stream=True)
-	save_response_content(response, destination)
-
-def download_caption(dirpath):
-	data_dir = 'cvpr2016_flowers.tar.gz'
-	if os.path.exists(os.path.join(dirpath, data_dir)):
-		print('Found cvpr2016_flowers.tar.gz - skip')
-		return
-
-	filename, drive_id  = "cvpr2016_flowers.tar.gz", "0B0ywwgffWnLLcms2WWJQRFNSWXM"
-	save_path = os.path.join(dirpath, filename)
-
-	if os.path.exists(save_path):
-		print('[*] {} already exists'.format(save_path))
-	else:
-		download_file_from_google_drive(drive_id, save_path)
+DATA_DIR = 'Data'
 
 
-def download(url, dirpath):
-	filepath = dirpath
-	u = urllib.request.urlopen(url)
-	f = open(filepath, 'wb')
-	filesize = int(u.headers["Content-Length"])
-	print("Downloading: %s Bytes: %s" % ("102flowers", filesize))
+# http://stackoverflow.com/questions/273192/how-to-check-if-a-directory-exists-and-create-it-if-necessary
+def make_sure_path_exists(path):
+    try:
+        os.makedirs(path)
+    except OSError as exception:
+        if exception.errno != errno.EEXIST:
+            raise
 
-	downloaded = 0
-	block_sz = 8192
-	status_width = 70
-	while True:
-		buf = u.read(block_sz)
-		if not buf:
-			print('')
-			break
-		else:
-			print('', end='\r')
-		downloaded += len(buf)
-		f.write(buf)
 
-		status = (("[{}  " + " ***progress: {:03.1f}% ]").format('=' * int(float(downloaded) / 
-			filesize * status_width) + '>', downloaded * 100. / filesize))
-		print(status, end='')
+def create_data_paths():
+    if not os.path.isdir(DATA_DIR):
+        raise EnvironmentError('Needs to be run from project directory containing ' + DATA_DIR)
+    needed_paths = [
+        os.path.join(DATA_DIR, 'samples'),
+        os.path.join(DATA_DIR, 'val_samples'),
+        os.path.join(DATA_DIR, 'Models'),
+    ]
+    for p in needed_paths:
+        make_sure_path_exists(p)
 
-		sys.stdout.flush()
-	f.close()
-	return filepath
 
-def unzip(src_dir,new_name = None):
-	# extract to current directory
-	dirpath = '.'
-	try:
-		if src_dir.endswith('.zip'):
-			print('unzipping ' + src_dir)
-			with zipfile.ZipFile(src_dir) as zf:
-				zip_dir = zf.namelist()[0]
-				zf.extractall(dirpath)
-		elif src_dir.endswith('.tgz') or src_dir.endswith('tar.gz'):
-			print('unzipping ' + src_dir)
-			tar = tarfile.open(src_dir)
-			tar.extractall()
-			tar.close()
-		# os.remove(save_path)
-		if new_name is None:
-			pass
-		else:
-			os.rename('jpg', os.path.join(dirpath, new_name))
-	except:
-		raise('wrong format')
+# adapted from http://stackoverflow.com/questions/51212/how-to-write-a-download-progress-indicator-in-python
+def dl_progress_hook(count, blockSize, totalSize):
+    percent = int(count * blockSize * 100 / totalSize)
+    sys.stdout.write("\r" + "...%d%%" % percent)
+    sys.stdout.flush()
+
+
+def download_dataset(data_name):
+    if data_name == 'flowers':
+        print('== Flowers dataset ==')
+        flowers_dir = os.path.join(DATA_DIR, 'flowers')
+        flowers_jpg_tgz = os.path.join(flowers_dir, '102flowers.tgz')
+        make_sure_path_exists(flowers_dir)
+
+        # the original google drive link at https://drive.google.com/file/d/0B0ywwgffWnLLcms2WWJQRFNSWXM/view
+        # from https://github.com/reedscot/icml2016 is problematic to download automatically, so included
+        # the text_c10 directory from that archive as a bzipped file in the repo
+        #captions_tbz = os.path.join(DATA_DIR, 'flowers_text_c10.tar.bz2')
+        #print('Extracting ' + captions_tbz)
+        #captions_tar = tarfile.open(captions_tbz, 'r:bz2')
+        #captions_tar.extractall(flowers_dir)
+
+        flowers_url = 'http://www.robots.ox.ac.uk/~vgg/data/flowers/102/102flowers.tgz'
+        print('Downloading ' + flowers_jpg_tgz + ' from ' + flowers_url)
+        urlretrieve(flowers_url, flowers_jpg_tgz,
+                    reporthook=dl_progress_hook)
+        print('Extracting ' + flowers_jpg_tgz)
+        flowers_jpg_tar = tarfile.open(flowers_jpg_tgz, 'r:gz')
+        flowers_jpg_tar.extractall(flowers_dir)  # archive contains jpg/ folder
+
+    elif data_name == 'skipthoughts':
+        print('== Skipthoughts models ==')
+        SKIPTHOUGHTS_DIR = os.path.join(DATA_DIR, 'skipthoughts')
+        SKIPTHOUGHTS_BASE_URL = 'http://www.cs.toronto.edu/~rkiros/models/'
+        make_sure_path_exists(SKIPTHOUGHTS_DIR)
+
+        # following https://github.com/ryankiros/skip-thoughts#getting-started
+        skipthoughts_files = [
+            'dictionary.txt', 'utable.npy', 'btable.npy', 'uni_skip.npz', 'uni_skip.npz.pkl', 'bi_skip.npz',
+            'bi_skip.npz.pkl',
+        ]
+        for filename in skipthoughts_files:
+            src_url = SKIPTHOUGHTS_BASE_URL + filename
+            print('Downloading ' + src_url)
+            urlretrieve(src_url, os.path.join(SKIPTHOUGHTS_DIR, filename),
+                        reporthook=dl_progress_hook)
+
+    elif data_name == 'nltk_punkt':
+        import nltk
+        print('== NLTK pre-trained Punkt tokenizer for English ==')
+        nltk.download('punkt')
+
+    elif data_name == 'pretrained_model':
+        print('== Pretrained model ==')
+        MODEL_DIR = os.path.join(DATA_DIR, 'Models')
+        pretrained_model_filename = 'latest_model_flowers_temp.ckpt'
+        src_url = 'https://bitbucket.org/paarth_neekhara/texttomimagemodel/raw/74a4bbaeee26fe31e148a54c4f495694680e2c31/' + pretrained_model_filename
+        print('Downloading ' + src_url)
+        urlretrieve(
+            src_url,
+            os.path.join(MODEL_DIR, pretrained_model_filename),
+            reporthook=dl_progress_hook,
+        )
+
+    else:
+        raise ValueError('Unknown dataset name: ' + data_name)
+
 
 def main():
-	url = "http://www.robots.ox.ac.uk/~vgg/data/flowers/102/102flowers.tgz"
-	cur_dir = os.getcwd()
-	image_dir = os.path.join(cur_dir,"102flowers.tgz")
-	if os.path.exists(image_dir):
-		print('dataset already exists')
-	else:
-		download(url,image_dir)
-	unzip(image_dir,'102flowers')
+    create_data_paths()
+    # TODO: make configurable via command-line
+    download_dataset('flowers')
+    download_dataset('skipthoughts')
+    download_dataset('nltk_punkt')
+    download_dataset('pretrained_model')
+    print('Done')
 
-	caption_dir = os.path.join(cur_dir,"cvpr2016_flowers.tar.gz")
-	if os.path.exists(caption_dir):
-		print('dataset already exists')
-	else:
-		download_caption(cur_dir)
-	unzip(caption_dir)
 
 if __name__ == '__main__':
-	main()
-
-
-
-
-
-
-
+    main()

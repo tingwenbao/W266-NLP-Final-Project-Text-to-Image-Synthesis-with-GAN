@@ -1,191 +1,115 @@
+import json
 import os
+from os.path import join, isfile
 import re
-import time
-import nltk
-import re
-import string
-import tensorlayer as tl
 import numpy as np
-import scipy
-import scipy.misc
-import random
-import tensorflow as tf
-import string
-
-
-'''
-This script is mainly used in cooperation with codes from https://github.com/zsdonghao/text-to-image
-Process the image and caption data and save it as pickles
-'''
-
-dataset = '102flowers' #
-need_256 = False # set to True for stackGAN
-
-def load_folder_list(path=""):
-    """Return a folder list in a folder by given a folder path.
-    Parameters
-    ----------
-    path : a string or None
-        A folder path.
-    """
-    return [os.path.join(path,o) for o in os.listdir(path) if os.path.isdir(os.path.join(path,o))]
-
-def preprocess_caption(line):
-    prep_line = re.sub('[%s]' % re.escape(string.punctuation), ' ', line.rstrip())
-    prep_line = prep_line.replace('-', ' ')
-    return prep_line
-
-if dataset == '102flowers':
-    """
-    images.shape = [8000, 64, 64, 3]
-    captions_ids = [80000, any]
-    """
-    cwd = os.getcwd()
-    img_dir = os.path.join(cwd, '102flowers/102flowers')
-    caption_dir = os.path.join(cwd, '102flowers/text_c10')
-    VOC_FIR = cwd + '/vocab.txt'
-
-    ## load captions
-    caption_sub_dir = load_folder_list( caption_dir )
-    captions_dict = {}
-    processed_capts = []
-    for sub_dir in caption_sub_dir: # get caption file list
-        with tl.ops.suppress_stdout():
-            files = tl.files.load_file_list(path=sub_dir, regx='^image_[0-9]+\.txt')
-            for i, f in enumerate(files):
-                file_dir = os.path.join(sub_dir, f)
-                key = int(re.findall('\d+', f)[0])
-                t = open(file_dir,'r')
-                lines = []
-                for line in t:
-                    line = preprocess_caption(line)
-                    lines.append(line)
-                    processed_capts.append(tl.nlp.process_sentence(line, start_word="<S>", end_word="</S>"))
-                assert len(lines) == 10, "Every flower image have 10 captions"
-                captions_dict[key] = lines
-    print(" * %d x %d captions found " % (len(captions_dict), len(lines)))
-
-    ## build vocab
-    if not os.path.isfile('vocab.txt'):
-        _ = tl.nlp.create_vocab(processed_capts, word_counts_output_file=VOC_FIR, min_word_count=1)
-    else:
-        print("WARNING: vocab.txt already exists")
-    vocab = tl.nlp.Vocabulary(VOC_FIR, start_word="<S>", end_word="</S>", unk_word="<UNK>")
-
-    ## store all captions ids in list
-    captions_ids = []
-    try: # python3
-        tmp = captions_dict.items()
-    except: # python3
-        tmp = captions_dict.iteritems()
-    for key, value in tmp:
-        for v in value:
-            captions_ids.append( [vocab.word_to_id(word) for word in nltk.tokenize.word_tokenize(v)] + [vocab.end_id])  # add END_ID
-            # print(v)              # prominent purple stigma,petals are white inc olor
-            # print(captions_ids)   # [[152, 19, 33, 15, 3, 8, 14, 719, 723]]
-            # exit()
-    captions_ids = np.asarray(captions_ids)
-    print(" * tokenized %d captions" % len(captions_ids))
-
-    ## check
-    img_capt = captions_dict[1][1]
-    print("img_capt: %s" % img_capt)
-    print("nltk.tokenize.word_tokenize(img_capt): %s" % nltk.tokenize.word_tokenize(img_capt))
-    img_capt_ids = [vocab.word_to_id(word) for word in nltk.tokenize.word_tokenize(img_capt)]#img_capt.split(' ')]
-    print("img_capt_ids: %s" % img_capt_ids)
-    print("id_to_word: %s" % [vocab.id_to_word(id) for id in img_capt_ids])
-
-    ## load images
-    with tl.ops.suppress_stdout():  # get image files list
-        imgs_title_list = sorted(tl.files.load_file_list(path=img_dir, regx='^image_[0-9]+\.jpg'))
-    print(" * %d images found, start loading and resizing ..." % len(imgs_title_list))
-    s = time.time()
-
-    # time.sleep(10)
-    # def get_resize_image(name):   # fail
-    #         img = scipy.misc.imread( os.path.join(img_dir, name) )
-    #         img = tl.prepro.imresize(img, size=[64, 64])    # (64, 64, 3)
-    #         img = img.astype(np.float32)
-    #         return img
-    # images = tl.prepro.threading_data(imgs_title_list, fn=get_resize_image)
-    images = []
-    images_256 = []
-    for name in imgs_title_list:
-        # print(name)
-        img_raw = scipy.misc.imread( os.path.join(img_dir, name) )
-        img = tl.prepro.imresize(img_raw, size=[64, 64])    # (64, 64, 3)
-        img = img.astype(np.float32)
-        images.append(img)
-        if need_256:
-            img = tl.prepro.imresize(img_raw, size=[256, 256]) # (256, 256, 3)
-            img = img.astype(np.float32)
-
-            images_256.append(img)
-    # images = np.array(images)
-    # images_256 = np.array(images_256)
-    print(" * loading and resizing took %ss" % (time.time()-s))
-
-    n_images = len(captions_dict)
-    n_captions = len(captions_ids)
-    n_captions_per_image = len(lines) # 10
-
-    print("n_captions: %d n_images: %d n_captions_per_image: %d" % (n_captions, n_images, n_captions_per_image))
-
-    captions_ids_train, captions_ids_test = captions_ids[: 8000*n_captions_per_image], captions_ids[8000*n_captions_per_image :]
-    images_train, images_test = images[:8000], images[8000:]
-    if need_256:
-        images_train_256, images_test_256 = images_256[:8000], images_256[8000:]
-    n_images_train = len(images_train)
-    n_images_test = len(images_test)
-    n_captions_train = len(captions_ids_train)
-    n_captions_test = len(captions_ids_test)
-    print("n_images_train:%d n_captions_train:%d" % (n_images_train, n_captions_train))
-    print("n_images_test:%d  n_captions_test:%d" % (n_images_test, n_captions_test))
-
-    ## check test image
-    # idexs = get_random_int(min=0, max=n_captions_test-1, number=64)
-    # temp_test_capt = captions_ids_test[idexs]
-    # for idx, ids in enumerate(temp_test_capt):
-    #     print("%d %s" % (idx, [vocab.id_to_word(id) for id in ids]))
-    # temp_test_img = images_train[np.floor(np.asarray(idexs).astype('float')/n_captions_per_image).astype('int')]
-    # save_images(temp_test_img, [8, 8], 'temp_test_img.png')
-    # exit()
-
-    # ## check the first example
-    # tl.visualize.frame(I=images[0], second=5, saveable=True, name='temp', cmap=None)
-    # for cap in captions_dict[1]:
-    #     print(cap)
-    # print(captions_ids[0:10])
-    # for ids in captions_ids[0:10]:
-    #     print([vocab.id_to_word(id) for id in ids])
-    # print_dict(captions_dict)
-
-    # ## generate a random batch
-    # batch_size = 64
-    # idexs = get_random_int(0, n_captions_test, batch_size)
-    # # idexs = [i for i in range(0,100)]
-    # print(idexs)
-    # b_seqs = captions_ids_test[idexs]
-    # b_images = images_test[np.floor(np.asarray(idexs).astype('float')/n_captions_per_image).astype('int')]
-    # print("before padding %s" % b_seqs)
-    # b_seqs = tl.prepro.pad_sequences(b_seqs, padding='post')
-    # print("after padding %s" % b_seqs)
-    # # print(input_images.shape)   # (64, 64, 64, 3)
-    # for ids in b_seqs:
-    #     print([vocab.id_to_word(id) for id in ids])
-    # print(np.max(b_images), np.min(b_images), b_images.shape)
-    # from utils import *
-    # save_images(b_images, [8, 8], 'temp2.png')
-    # # tl.visualize.images2d(b_images, second=5, saveable=True, name='temp2')
-    # exit()
-
 import pickle
-def save_all(targets, file):
-    with open(file, 'wb') as f:
-        pickle.dump(targets, f)
+import argparse
+import imp
+imp.load_source("skipthoughts", "./skip-thoughts/skipthoughts.py") 
+import skipthoughts
+import h5py
 
-save_all(vocab, '_vocab.pickle')
-save_all((images_train, images_train), '_image_train.pickle')
-save_all((images_test, images_test), '_image_test.pickle')
-save_all((n_captions_train, n_captions_test, n_captions_per_image, n_images_train, n_images_test), '_n.pickle')
-save_all((captions_ids_train, captions_ids_test), '_caption.pickle')
+## Adapted from https://github.com/paarthneekhara/text-to-image/blob/master/data_loader.py
+
+# DID NOT TRAIN IT ON MS COCO YET
+def save_caption_vectors_ms_coco(data_dir, split, batch_size):
+	meta_data = {}
+	ic_file = join(data_dir, 'annotations/captions_{}2014.json'.format(split))
+	with open(ic_file) as f:
+		ic_data = json.loads(f.read())
+
+	meta_data['data_length'] = len(ic_data['annotations'])
+	with open(join(data_dir, 'meta_{}.pkl'.format(split)), 'wb') as f:
+		pickle.dump(meta_data, f)
+
+	model = skipthoughts.load_model()
+	batch_no = 0
+	print "Total Batches", len(ic_data['annotations'])/batch_size
+
+	while batch_no*batch_size < len(ic_data['annotations']):
+		captions = []
+		image_ids = []
+		idx = batch_no
+		for i in range(batch_no*batch_size, (batch_no+1)*batch_size):
+			idx = i%len(ic_data['annotations'])
+			captions.append(ic_data['annotations'][idx]['caption'])
+			image_ids.append(ic_data['annotations'][idx]['image_id'])
+
+		print captions
+		print image_ids
+		# Thought Vectors
+		tv_batch = skipthoughts.encode(model, captions)
+		h5f_tv_batch = h5py.File( join(data_dir, 'tvs/'+split + '_tvs_' + str(batch_no)), 'w')
+		h5f_tv_batch.create_dataset('tv', data=tv_batch)
+		h5f_tv_batch.close()
+
+		h5f_tv_batch_image_ids = h5py.File( join(data_dir, 'tvs/'+split + '_tv_image_id_' + str(batch_no)), 'w')
+		h5f_tv_batch_image_ids.create_dataset('tv', data=image_ids)
+		h5f_tv_batch_image_ids.close()
+
+		print "Batches Done", batch_no, len(ic_data['annotations'])/batch_size
+		batch_no += 1
+
+
+def save_caption_vectors_flowers(data_dir):
+	import time
+	
+	img_dir = join(data_dir, 'flowers/jpg')
+	image_files = [f for f in os.listdir(img_dir) if 'jpg' in f]
+	print image_files[300:400]
+	print len(image_files)
+	image_captions = { img_file : [] for img_file in image_files }
+
+	caption_dir = join(data_dir, 'flowers/text_c10')
+	class_dirs = []
+	for i in range(1, 103):
+		class_dir_name = 'class_%.5d'%(i)
+		class_dirs.append( join(caption_dir, class_dir_name))
+
+	for class_dir in class_dirs:
+		caption_files = [f for f in os.listdir(class_dir) if 'txt' in f]
+		for cap_file in caption_files:
+			with open(join(class_dir,cap_file)) as f:
+				captions = f.read().split('\n')
+			img_file = cap_file[0:11] + ".jpg"
+			# 5 captions per image
+			image_captions[img_file] += [cap for cap in captions if len(cap) > 0][0:5]
+
+	print len(image_captions)
+
+	model = skipthoughts.load_model()
+	encoded_captions = {}
+
+
+	for i, img in enumerate(image_captions):
+		st = time.time()
+		encoded_captions[img] = skipthoughts.encode(model, image_captions[img])
+		print i, len(image_captions), img
+		print "Seconds", time.time() - st
+		
+	
+	h = h5py.File(join(data_dir, 'flower_tv.hdf5'))
+	for key in encoded_captions:
+		h.create_dataset(key, data=encoded_captions[key])
+	h.close()
+			
+def main():
+	parser = argparse.ArgumentParser()
+	parser.add_argument('--split', type=str, default='train',
+                       help='train/val')
+	parser.add_argument('--data_dir', type=str, default='Data',
+                       help='Data directory')
+	parser.add_argument('--batch_size', type=int, default=64,
+                       help='Batch Size')
+	parser.add_argument('--data_set', type=str, default='flowers',
+                       help='Data Set : Flowers, MS-COCO')
+	args = parser.parse_args()
+	
+	if args.data_set == 'flowers':
+		save_caption_vectors_flowers(args.data_dir)
+	else:
+		save_caption_vectors_ms_coco(args.data_dir, args.split, args.batch_size)
+
+if __name__ == '__main__':
+	main()
