@@ -12,4 +12,4 @@ Data/
 *.tar.gz
 skip-thoughts/
 */skip-thoughtsc
-*/libgpuarray/
+libgpuarray
