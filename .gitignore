@@ -13,3 +13,4 @@ Data/
 skip-thoughts/
 */skip-thoughtsc
 libgpuarray
+__pycache__
