@@ -1182,7 +1182,7 @@ def discriminator_txt2img_resnet(input_images, t_txt=None, is_train=True, reuse=
         # net_ho = FlattenLayer(net_h4, name='d_ho/flatten')
         logits = net_ho.outputs
         net_ho.outputs = tf.nn.sigmoid(net_ho.outputs)
-    return net_ho, logits
+    return net_ho, logits, net_h4
 
 def z_encoder(input_images, is_train=True, reuse=False):
     """ 64x64 -> z """

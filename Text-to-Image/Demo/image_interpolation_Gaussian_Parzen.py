@@ -73,6 +73,8 @@ net_g, _ = generator_txt2img(t_z,
                 rnn_embed(t_real_caption, is_train=False, reuse=True).outputs,
                 is_train=False, reuse=True, batch_size=batch_size)
 
+input_images = tf.placeholder(tf.float32, [64,image_size, image_size, 3], name='g_gmm_input')
+
 ######### new stuff here
 sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True))
 
@@ -86,11 +88,13 @@ merged_caption = (caption1 + caption2) / 2
 
 merged_image, _ = generator_txt2img(t_z, merged_caption,
                 is_train=False, reuse=True, batch_size=batch_size)
+net_d,_,net_h4 = discriminator_txt2img(input_images, t_txt=None, is_train=True, reuse=False)
 
 print("Loading weights from trained NN")
 load_and_assign_npz(sess=sess, name=net_rnn_name, model=net_rnn)
 load_and_assign_npz(sess=sess, name=net_cnn_name, model=net_cnn)
 load_and_assign_npz(sess=sess, name=net_g_name, model=net_g)
+load_and_assign_npz(sess=sess, name=net_d_name, model=net_d)
 
 sample_size = batch_size
 sample_seed = np.random.normal(loc=0.0, scale=1.0, size=(sample_size, z_dim)).astype(np.float32)
@@ -114,6 +118,8 @@ sample2 = get_pad_seq(sample2)
                                         t_z : sample_seed})
 
 save_images(generated_imgs, [ni, ni], 'samples/image_interpolation.png')
+
+[g_h4] = sess.run([net_h4.outputs], feed_dict={t_real_image:generated_imgs})
 
 ###########################################################
 ## Search image ##
