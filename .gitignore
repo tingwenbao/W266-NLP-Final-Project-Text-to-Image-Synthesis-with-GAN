@@ -8,9 +8,12 @@ mnist/
 *.pickle
 *.txt
 *.py~
+*.pyc
 Data/
 *.tar.gz
 skip-thoughts/
 */skip-thoughtsc
 libgpuarray
 __pycache__
+checkpoint/
+*.zip
